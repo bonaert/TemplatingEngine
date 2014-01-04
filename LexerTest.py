@@ -282,6 +282,15 @@ class LexerTest(unittest.TestCase):
         ]
         self.assert_tokens_are_correct(tokens, source)
 
+    def test_can_process_unicode(self):
+        source = '{{ èéáàìíóòúùüïoäë }}'
+        tokens = [
+            (TOKEN_VARIABLE_START, '{{'),
+            (TOKEN_NAME, 'èéáàìíóòúùüïoäë'),
+            (TOKEN_VARIABLE_END, '}}')
+        ]
+        self.assert_tokens_are_correct(tokens, source)
+
     def test_can_use_look(self):
         source = '{{ foo }}'
         stream = self.lexer.tokenize(source)

@@ -243,6 +243,12 @@ class ParserTest(unittest.TestCase):
         self.result = ''
         self.assert_source_parses_and_renders_correctly()
 
+    def test_can_use_unicode(self):
+        self.items = {'äáéà' : 'hi', 'ííìì': [1,2,3]}
+        self.source = '{{ äáéà }} {% for i in ííìì %}{{i}}{% endfor %}'
+        self.result = 'hi 123'
+        self.assert_source_parses_and_renders_correctly()
+
 
 
 
