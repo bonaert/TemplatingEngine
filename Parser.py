@@ -109,7 +109,7 @@ class Parser(NodeVisitor):
             if not explicit_parentheses:
                 raise TemplateSyntaxException('Cannot allow empty element')
 
-        return Node.Tuple(items, 'load')
+        return Node.Tuple(items)
 
     def has_reached_tuple_end(self, extra_end_rules):
         if self.stream.current.token_type in ('variable_end', 'block_end', 'rparen'):
@@ -246,29 +246,14 @@ class Parser(NodeVisitor):
         token_type = self.stream.current.token_type
         token_value = self.stream.current.value
         if token_type == 'name':
-            if token_value in ('True', 'False', 'true', 'false'):
-                node = Node.Value(token_value in ('True', 'true'))
-            elif token_value in ('None', 'none'):
-                node = Node.Value(None)
-            else:
-                node = Node.Variable(token_value, 'load')
-            next(self.stream)
-            return node
+            return self.parse_name(token_value)
         elif token_type == 'string':
-            buffer = [token_value]
-            next(self.stream)
-            while self.stream.current.token_type == 'string':
-                buffer.append(self.stream.current.value)
-                next(self.stream)
-            return Node.Value(''.join(buffer))
+            return self.parse_string(token_value)
         elif token_type in ('float', 'integer'):
             next(self.stream)
             return Node.Value(token_value)
         elif token_type == 'lparen':
-            next(self.stream)
-            parsed_tuple = self.parse_tuple()
-            self.stream.expect('rparen')
-            return parsed_tuple
+            return self.parse_explicit_tuple()
         elif token_type == 'lbracket':
             return self.parse_list()
         elif token_type == 'lbrace':
@@ -276,16 +261,43 @@ class Parser(NodeVisitor):
         else:
             raise TemplateSyntaxException('Unknown token %s' % self.stream.current)
 
+    def parse_name(self, token_value):
+        try:
+            if token_value in ('True', 'False', 'true', 'false'):
+                return Node.Value(token_value in ('True', 'true'))
+            elif token_value in ('None', 'none'):
+                return Node.Value(None)
+            else:
+                return Node.Variable(token_value)
+        finally:
+            next(self.stream)
+
+
+    def parse_string(self, token_value):
+        buffer = [token_value]
+        next(self.stream)
+        while self.stream.current.token_type == 'string':
+            buffer.append(self.stream.current.value)
+            next(self.stream)
+        return Node.Value(''.join(buffer))
+
+    def parse_explicit_tuple(self):
+        self.stream.expect('lparen')
+        parsed_tuple = self.parse_tuple()
+        self.stream.expect('rparen')
+        return parsed_tuple
+
     def parse_list(self):
-        items = []
         self.stream.expect('lbracket')
+
+        items = []
         while self.stream.current.token_type != 'rbracket':
             if items:
                 self.stream.expect('comma')
-            if self.stream.current.token_type == 'rbracket':
-                break
             items.append(self.parse_expression())
+
         self.stream.expect('rbracket')
+
         return Node.List(items)
 
     def parse_dict(self):
@@ -295,8 +307,6 @@ class Parser(NodeVisitor):
         while self.stream.current.token_type != 'rbrace':
             if items:
                 self.stream.expect('comma')
-            if self.stream.current.token_type == 'rbrace':
-                break
 
             key = self.parse_expression()
             self.stream.expect('colon')
@@ -305,6 +315,7 @@ class Parser(NodeVisitor):
             items.append(Node.Pair(key, value))
 
         self.stream.expect('rbrace')
+
         return Node.Dict(items)
 
     def parse_postfix(self, node):
@@ -342,24 +353,27 @@ class Parser(NodeVisitor):
                 self.stream.expect('comma')
             args.append(self.parse_subscribed())
         self.stream.expect('rbracket')
+
         if len(args) == 1:
             arg = args[0]
         else:
-            arg = Node.Tuple(args, 'load')
+            arg = Node.Tuple(args)
+
         return Node.GetItem(node, arg, 'load')
 
     def parse_subscribed(self):
-        args = []
         if self.stream.current.token_type != 'colon':
             expr = self.parse_expression()
             if self.stream.current.token_type != 'colon':
                 return expr
-            args.append(expr)
+            return self.parse_remaining_slice(expr)
+        else:
+            return self.parse_remaining_slice()
 
-        return self.parse_remaining_slice(args)
 
-    def parse_remaining_slice(self, args):
+    def parse_remaining_slice(self, first_arg=None):
         # for list[2:3:4], args will be [2]
+        args = [first_arg]
         self.stream.expect('colon')
 
         token_type = self.stream.current.token_type

@@ -166,7 +166,7 @@ class Value(Node):
 
 
 class Variable(Node):
-    fields = ('name', 'purpose')
+    fields = ('name', )
 
     def render(self, context=None):
         return resolve_in_context(self.name, context)
@@ -195,13 +195,10 @@ class Slice(Node):
 
 
 class Tuple(Node):
-    fields = ('items', 'purpose')
+    fields = ('items', )
 
     def render(self, context=None):
         return tuple(item.render(context) for item in self.items)
-
-    def can_assign(self):
-        return all(item.can_assign() for item in self.items)
 
 
 class Dict(Node):
