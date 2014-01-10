@@ -77,7 +77,7 @@ class Token():
             return False
 
     def items(self):
-        return (self.token_type, self.value)
+        return self.token_type, self.value
 
     def test_any(self, *iterable):
         return any(self.test(expr) for expr in iterable)
@@ -183,6 +183,7 @@ class Lexer():
         self.current_match_result = None
         self.current_regex = None
         self.node_stack = []
+        self.balancing_stack = []
         self.current_rules = None
 
     def compile_rules(self):
@@ -245,6 +246,7 @@ class Lexer():
             yield Token(token_type, value)
 
     def tokenize_source(self, source):
+        self.balancing_stack = []
         source_length = len(source)
         self.node_stack = ['root']
         self.current_rules = self.rules[self.node_stack[-1]]
@@ -266,44 +268,69 @@ class Lexer():
                     self.update_position()
                     break
             else:
-                if self.position == source_length:
-                    return
-                raise TemplateSyntaxException('Unexpected char %r at position %d' %
-                                              (source[self.position], self.position))
+                if self.position != source_length:
+                    raise TemplateSyntaxException('Unexpected char %r at position %d' %
+                                                  (source[self.position], self.position))
+                else:
+                    break
+
+        if self.balancing_stack:
+            raise TemplateSyntaxException('Unbalanced operators: %s' % ' ,'.join(self.balancing_stack))
 
     def rules_items(self):
         for rule in self.current_rules:
             yield rule.items()
 
-    def process_match(self, possible_token_types):
-        if isinstance(possible_token_types, tuple):
-            return self.process_result_from_group(possible_token_types)
+    def process_match(self, token_types):
+        if isinstance(token_types, tuple):
+            return self.process_match_with_different_possible_types(token_types)
         else:
-            return possible_token_types, self.current_match_result.group()
+            return self.process_match_simple_token(token_types)
 
-    def process_result_from_group(self, possible_token_types):
+    def process_match_with_different_possible_types(self, possible_token_types):
         result = []
 
         for (index, possible_token_type) in enumerate(possible_token_types):
             if possible_token_type == '#bygroup':
-                return result + [self.process_result_from_by_group()]
+                return result + [self.process_match_from_by_group()]
             else:
-                value = self.process_result_from_normal_group(possible_token_type, index)
+                value = self.process_match_from_normal_group(possible_token_type, index)
                 if value:
                     result.append(value)
 
         return result
 
-    def process_result_from_by_group(self):
+    def process_match_from_by_group(self):
         for group_token_type, token_text in self.current_match_result.groupdict().items():
             if token_text is not None:
                 return group_token_type, token_text
 
-    def process_result_from_normal_group(self, possible_token_type, index):
+    def process_match_from_normal_group(self, possible_token_type, index):
         data = self.current_match_result.group(index + 1)
         if data:
             return possible_token_type, data
         self.line_number += data.count('\n')
+
+    def process_match_simple_token(self, token_type):
+        token = self.current_match_result.group()
+        self.update_brace_paren_balancing_stack(token, token_type)
+        return token_type, token
+
+    def update_brace_paren_balancing_stack(self, token, token_type):
+        if token_type == 'operator':
+            if token == '(':
+                self.balancing_stack.append(')')
+            elif token == '{':
+                self.balancing_stack.append('}')
+            elif token == '[':
+                self.balancing_stack.append(']')
+            elif token in (')', ']', '}'):
+                if not self.balancing_stack:
+                    raise TemplateSyntaxException('Unexpected character: %s' % token)
+
+                expected_operator = self.balancing_stack.pop()
+                if token != expected_operator:
+                    raise TemplateSyntaxException('Unexpected %s, expected %s' % (token, expected_operator))
 
     def update_state(self, new_state):
         if new_state is not None:

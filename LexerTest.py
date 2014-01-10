@@ -1,6 +1,7 @@
 import unittest
 from Lexer import Lexer
 from Constants import *
+from Exception import TemplateSyntaxException
 
 
 class LexerTest(unittest.TestCase):
@@ -12,6 +13,14 @@ class LexerTest(unittest.TestCase):
 
     def get_tokens(self, source):
         return [token.items() for token in self.lexer.tokenize(source)]
+
+    def assert_stream_raises(self, stream, exception):
+        try:
+            for _ in stream:
+                pass
+            self.assertTrue(False)
+        except exception:
+            pass
 
     def test_empty_text_return_no_tokens(self):
         self.assert_tokens_are_correct([], '')
@@ -304,6 +313,21 @@ class LexerTest(unittest.TestCase):
 
         next(stream)
         stream.expect(TOKEN_VARIABLE_END)
+
+    def test_unmatched_parenthesis_raise_exception(self):
+        source = '{{ 2 + (4 }}'
+        stream = self.lexer.tokenize(source)
+        self.assert_stream_raises(stream, TemplateSyntaxException)
+
+    def test_unmatched_brace_raise_exception(self):
+        source = '{{ 2 + {"a":"b" }}'
+        stream = self.lexer.tokenize(source)
+        self.assert_stream_raises(stream, TemplateSyntaxException)
+
+    def test_unmatched_bracket_raise_exception(self):
+        source = '{{ 2 + [1, 2, 3 }}'
+        stream = self.lexer.tokenize(source)
+        self.assert_stream_raises(stream, TemplateSyntaxException)
 
 
 class TokenStream(unittest.TestCase):
